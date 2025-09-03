@@ -1,7 +1,6 @@
-// src/index.ts
 import express, { Request, Response } from 'express';
 import dotenv from 'dotenv';
-import { scrapeNaverProduct, scrapeNaverProductWithPuppeteer } from './scraper';
+import { scrapeNaverHybrid } from './scraper';
 
 dotenv.config();
 
@@ -23,8 +22,7 @@ app.get('/naver', async (req: Request, res: Response) => {
 
   const startTime = Date.now();
   try {
-    // const data = await scrapeNaverProduct(productUrl);
-    const data = await scrapeNaverProductWithPuppeteer(productUrl);
+    const data = await scrapeNaverHybrid(productUrl);
     const latency = (Date.now() - startTime) / 1000;
     console.log(`Request successful. Latency: ${latency.toFixed(2)}s`);
 
