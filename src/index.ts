@@ -1,7 +1,7 @@
-// src/index.ts
 import express, { Request, Response } from 'express';
 import dotenv from 'dotenv';
 import { scrapeNaverHybrid } from './scraper';
+import { initializeBrowser, closeBrowser } from './puppeteerManager'; // <-- Import manajer browser
 
 dotenv.config();
 
@@ -45,6 +45,29 @@ app.get('/naver', async (req: Request, res: Response) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`API server is running at http://localhost:${PORT}`);
+// Fungsi utama untuk menjalankan server
+const startServer = async () => {
+  try {
+    // Inisialisasi browser SEBELUM server mulai menerima request
+    await initializeBrowser();
+
+    app.listen(PORT, () => {
+      console.log(`API server is running at http://localhost:${PORT}`);
+    });
+
+  } catch (error) {
+    console.error('💥 Gagal memulai server:', error);
+    process.exit(1);
+  }
+};
+
+// Menjalankan server
+startServer();
+
+// Menangani graceful shutdown (misalnya saat menekan Ctrl+C)
+process.on('SIGINT', async () => {
+  console.log('\nReceived SIGINT. Shutting down gracefully...');
+  await closeBrowser();
+  process.exit(0);
 });
+

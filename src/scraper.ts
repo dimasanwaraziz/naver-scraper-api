@@ -1,18 +1,11 @@
-// src/scraper.ts
 import axios from 'axios';
 import fs from 'fs';
 import path from 'path';
-import puppeteer from 'puppeteer-extra';
-import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import UserAgent from 'user-agents';
-import dotenv from 'dotenv';
-import { Protocol } from 'puppeteer';
+import { Page, Protocol } from 'puppeteer';
+import { getBrowser } from './puppeteerManager'; // <-- Ganti import
 
-// Terapkan plugin stealth ke puppeteer
-puppeteer.use(StealthPlugin());
-dotenv.config();
-
-// Fungsi helper untuk delay acak
+// Fungsi helper tetap sama
 const randomDelay = (min = 500, max = 1500) => new Promise(resolve => setTimeout(resolve, Math.random() * (max - min) + min));
 
 const formatCookiesForAxios = (cookies: Protocol.Network.Cookie[]): string => {
@@ -21,11 +14,8 @@ const formatCookiesForAxios = (cookies: Protocol.Network.Cookie[]): string => {
 
 const sanitizeCookies = (cookies: any[]): Protocol.Network.Cookie[] => {
   return cookies.map(cookie => {
-    if (cookie.sameSite === 'no_restriction') {
-      cookie.sameSite = 'None';
-    } else if (cookie.sameSite === null || cookie.sameSite === undefined) {
-      delete cookie.sameSite;
-    }
+    if (cookie.sameSite === 'no_restriction') cookie.sameSite = 'None';
+    else if (cookie.sameSite === null || cookie.sameSite === undefined) delete cookie.sameSite;
     if (cookie.expirationDate) {
       cookie.expires = cookie.expirationDate;
       delete cookie.expirationDate;
@@ -34,86 +24,47 @@ const sanitizeCookies = (cookies: any[]): Protocol.Network.Cookie[] => {
   }).filter(cookie => cookie.name);
 };
 
+// Fungsi scraper utama yang telah dimodifikasi
 export const scrapeNaverHybrid = async (productUrl: string) => {
   console.log(`🚀 Starting hybrid scrape for: ${productUrl}`);
-  let browser;
+  let page: Page | null = null; // <-- Kita hanya mengelola 'page', bukan 'browser'
 
   try {
-    console.log('🛡️  Step 1: Infiltrating with Puppeteer...');
+    console.log('🛡️  Step 1: Menggunakan browser yang sudah ada untuk membuka halaman baru...');
+    const browser = getBrowser(); // <-- Ambil instance browser yang sudah berjalan
+    page = await browser.newPage(); // <-- Buka tab baru, ini sangat cepat!
 
-    // --- PENGECEKAN PROXY ---
-    // Log ini akan membantu Anda mengonfirmasi apakah skrip menggunakan proxy dari file .env
-    if (process.env.PROXY_HOST) {
-      console.log(`- Using proxy server: ${process.env.PROXY_HOST}:${process.env.PROXY_PORT}`);
-      if (process.env.PROXY_USER) {
-        console.log(`- Using proxy user: ${process.env.PROXY_USER}`);
-      } else {
-        console.log(`- No proxy user defined.`);
-      }
-    } else {
-      console.log('- No proxy server configured.');
-    }
-    // --- AKHIR PENGECEKAN ---
-
-    browser = await puppeteer.launch({
-      headless: false,
-      devtools: true,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-blink-features=AutomationControlled', // <-- TEKNIK BARU: Sembunyikan tanda 'automation'
-        process.env.PROXY_HOST ? `--proxy-server=http://${process.env.PROXY_HOST}:${process.env.PROXY_PORT}` : ''
-      ].filter(Boolean)
-    });
-
-    const page = await browser.newPage();
-
-    // --- OTENTIKASI PROXY ---
-    // Error 'ERR_INVALID_AUTH_CREDENTIALS' biasanya berasal dari blok ini.
-    // Pastikan PROXY_USER dan PROXY_PASS di file .env Anda sudah benar.
-    if (process.env.PROXY_USER) {
+    if (process.env.PROXY_USER && process.env.PROXY_PASS) {
       await page.authenticate({
         username: process.env.PROXY_USER,
-        password: process.env.PROXY_PASS!
+        password: process.env.PROXY_PASS
       });
     }
 
-    // --- BLOK COOKIE YANG DIPERBAIKI ---
     try {
       const cookiesPath = path.join(__dirname, '..', 'cookies.json');
       const cookiesString = await fs.promises.readFile(cookiesPath, 'utf8');
       if (cookiesString) {
-        const rawCookies = JSON.parse(cookiesString);
-        const cleanCookies = sanitizeCookies(rawCookies);
+        const cleanCookies = sanitizeCookies(JSON.parse(cookiesString));
         await page.setCookie(...cleanCookies);
         console.log('🍪 Successfully loaded and sanitized cookies from file.');
-      } else {
-        console.log('⚠️ Cookies file is empty. Continuing without them.');
       }
     } catch (error: any) {
-      if (error.code === 'ENOENT') {
-        console.log('⚠️ cookies.json not found in project root.');
-      } else {
-        console.error('❌ Failed to read or set cookies:', error.message);
-      }
+      if (error.code !== 'ENOENT') console.error('❌ Failed to read or set cookies:', error.message);
+      else console.log('⚠️ cookies.json not found, continuing without pre-set cookies.');
     }
 
-    // TEKNIK BARU: Randomisasi viewport agar tidak selalu sama
     await page.setViewport({
       width: 1920 + Math.floor(Math.random() * 100),
       height: 1080 + Math.floor(Math.random() * 100)
     });
-
     await page.setUserAgent(new UserAgent({ deviceCategory: 'desktop' }).toString());
 
-    // TEKNIK BARU: "Pemanasan" sesi dengan mengunjungi halaman utama terlebih dahulu
+    // --- NAVIGASI (tetap sama) ---
     console.log('☕ Warming up session by visiting Naver Shopping main page...');
     await page.goto('https://shopping.naver.com/', { waitUntil: 'domcontentloaded' });
+    await randomDelay(2000, 5000);
 
-    console.log(`- Waiting for a random delay before proceeding...`);
-    await randomDelay(2000, 5000); // Tunggu 2-5 detik, seperti manusia
-
-    // Sekarang baru navigasi ke halaman produk yang sebenarnya
     console.log(`➡️ Navigating to the actual product page: ${productUrl}`);
     await page.goto(productUrl, {
       waitUntil: 'networkidle2',
@@ -124,11 +75,9 @@ export const scrapeNaverHybrid = async (productUrl: string) => {
     await new Promise(r => setTimeout(r, 10000));
 
     const preloadedState = await page.evaluate(() => (window as any).__PRELOADED_STATE__);
-
     if (!preloadedState) {
       await page.screenshot({ path: 'failure_screenshot.png', fullPage: true });
-      console.log('📸 Screenshot of failure page saved to failure_screenshot.png');
-      throw new Error('Failed to extract __PRELOADED_STATE__. Page is blocked or has a different structure.');
+      throw new Error('Failed to extract __PRELOADED_STATE__. Page might be blocked.');
     }
 
     const sessionCookies = await page.cookies();
@@ -136,17 +85,15 @@ export const scrapeNaverHybrid = async (productUrl: string) => {
     await fs.promises.writeFile(newCookiesPath, JSON.stringify(sessionCookies, null, 2));
     console.log('💾 Session cookies have been updated in cookies.json');
 
-    console.log('✅ Session data acquired. Closing browser...');
-    await browser.close();
-    browser = undefined;
+    await page.close();
+    page = null;
+    console.log('📄 Halaman ditutup, browser tetap berjalan.');
 
-    const channelUid = preloadedState.app?.channel?.channelUid || preloadedS_STATE.smartStoreV2?.channel.channelUid;
+    const channelUid = preloadedState.app?.channel?.channelUid || preloadedState.smartStoreV2?.channel.channelUid;
     const productId = productUrl.match(/\/products\/(\d+)/)?.[1];
-
     if (!channelUid || !productId) {
-      throw new Error('Failed to extract channelUid or productId from preloaded state.');
+      throw new Error('Failed to extract channelUid or productId.');
     }
-    console.log(`- Extracted channelUid: ${channelUid}`);
 
     console.log('⚡️ Step 2: Fetching API data with Axios...');
     const cookieHeader = formatCookiesForAxios(sessionCookies);
@@ -175,13 +122,14 @@ export const scrapeNaverHybrid = async (productUrl: string) => {
 
   } catch (error: any) {
     console.error('❌ Hybrid scraping failed:', error.message);
+    if (page) await page.screenshot({ path: 'error_screenshot.png', fullPage: true });
     throw error;
   } finally {
-    if (browser) {
-      await browser.close();
-      console.log('Browser closed in finally block due to an error.');
+    // Pastikan halaman selalu ditutup jika terjadi error
+    if (page) {
+      await page.close();
+      console.log('📄 Halaman ditutup di blok finally karena ada error.');
     }
   }
 };
-
 
