@@ -2,6 +2,7 @@ import puppeteer from 'puppeteer-extra';
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import { Browser } from 'puppeteer';
 import dotenv from 'dotenv';
+import path from 'path'; // <-- Import modul 'path'
 
 // Konfigurasi awal, termasuk .env dan plugin Stealth
 dotenv.config();
@@ -19,10 +20,17 @@ export const initializeBrowser = async (): Promise<Browser> => {
     return browserInstance;
   }
 
+  // --- PERUBAHAN DI SINI ---
+  // Tentukan path untuk menyimpan data pengguna browser
+  const userDataDirPath = path.join(__dirname, '..', 'puppeteer_user_data');
+  console.log(`📂 Sesi browser akan disimpan di: ${userDataDirPath}`);
+  // -------------------------
+
   console.log('🚀 Meluncurkan instance browser persistent...');
   browserInstance = await puppeteer.launch({
     headless: false, // Set 'true' untuk production, 'false' untuk debug
     devtools: true,
+    userDataDir: userDataDirPath, // <-- Menambahkan opsi userDataDir
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
@@ -63,4 +71,5 @@ export const closeBrowser = async (): Promise<void> => {
     browserInstance = null;
   }
 };
+
 
